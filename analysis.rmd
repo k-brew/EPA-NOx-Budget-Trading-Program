@@ -1,0 +1,196 @@
+---
+title: ""
+author: "Kyle Brewster"
+date: '2022-06-03'
+output: html_document
+---
+<body style="background-color:lightgrey;">
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Briefly explain the policy variations induced by the NBP program.  
+
+*What does variable “nbp” = 1 indicate?*  
+
+The `nbp` variable is an indicator variable for if an observation is regulated by the Nitrogen Oxides (NOx) Budget Program (NBP). The NBP cap and trade program created to reduce the regional transport of NOx emissions from power plants and other large combustion sources in areas where emission concentration are at its highest. 
+
+*b. What does variable “summer” = 1 indicate?*    
+
+The `summer` variable is an indicator variable for if it is a summer month
+
+*c. What does variable “post = 1” indicate?*  
+
+The `post` variable indicates if the year of a given observation is after 2003
+
+The NBP operated a cap-and-trade system for over 2,500 electricity generating units and industrial boilers in the Eastern and Midwestern U.S. between 2003 and 2008. The market only operated between May 1 and September 30 since ozone pollution is highest during the summer.
+
+([source](http://joseph-s-shapiro.com/research/NOx_Defenses_DGS.pdf)).
+
+## 2. Replicate Panel A (States Participating in NBP) of the Appendix Fig. 2.
+
+```{r}
+pacman::p_load(ggplot2,
+               dplyr,
+               magrittr)
+# Reading data
+nbp = haven::read_dta("nbp.dta")
+skim_df = skimr::skim(nbp)
+
+# Cleaning
+
+
+nbp = nbp %>%
+   mutate(
+      fips_county = as.character(fips_county),
+      year = as.factor(year),
+      summer = as.factor(summer),
+      state = as.factor(fips_state),
+      nbp = as.factor(nbp),
+      post_2003 = as.factor(post)) %>%
+   rename(emissions = nox_emit,
+          county_code = fips_county)
+
+# Creating means by year 
+merged_df = nbp %>% group_by(year) %>% filter(summer==1 & nbp==1) %>%
+   summarise(yearly_avg_summer = mean(emissions))
+nbp %>% group_by(year) %>% filter(summer==0 & nbp==1) %>%
+   summarise(yearly_avg_winter = mean(emissions)) %>%
+   merge(.,merged_df, by="year") -> merged_df
+
+
+ggplot(merged_df, aes(x = year))+
+   geom_line(aes(y = yearly_avg_winter,
+                 group = 1),
+             color = "mediumblue",
+             size = 1.25)+
+   geom_point(aes(x = year,y=yearly_avg_winter))+
+   geom_line(aes(y = yearly_avg_summer,
+                 group = 2),
+             color = "mediumblue",
+             size = 1.25,
+             linetype = "dashed")+
+   geom_point(aes(x = year,y=yearly_avg_summer))+
+   geom_vline(xintercept = "2002") -> panel_A
+panel_A
+```
+
+## 3. State the parallel trends assumption underlying Panel A of Appendix Fig. 2. Does the graphical pattern suggest the parallel trends assumption is likely to hold?
+
+The parallel trends assumption states that, although treatment and comparison groups may have different levels of the outcome prior to the start of treatment, their trends in pre-treatment outcomes should be the same ([Ryan et. al.](https://journals.sagepub.com/doi/abs/10.1177/0962280218814570?journalCode=smma#:~:text=The%20parallel%20trends%20assumption%20states,outcomes%20should%20be%20the%20same.)).
+
+In this case, the solid line representing `summer` months would be the treatment because the policy is only enforced during summer months and is not in effect during the winter.
+
+Higher temperatures are generally associated with higher ozone levels in general ([EPA](https://www.epa.gov/air-trends/trends-ozone-adjusted-weather-conditions)), so we would expect to see a difference between the two lines on the same graph. Since the policy is only in effect during summer months, then the trends that exist during winter months should continue because they are not affected by the policy. The parallel trends assumption in this context would be holding the assumption that the same trend should can be found in winter months for both the treatment and the control group, and as a result we can assume that changes in our outcome variable (`emissions`) can be attributed to exposure to the treatment (i.e. being an NBP-participating `state`)
+
+## 4. Clearly state, estimate, and report a difference-in-differences regression that examines the effect of the NBP program on NOx emissions corresponding to Panel A of Appendix Fig. 2. Provide a one-sentence interpretation of the coefficient for the interaction term “summer*post”.
+
+To compute the difference-in-difference estimate of the casual effect of the treatment, we can create simple linear models from the data included in the panel representation
+
+```{r}
+nbp %<>% mutate(year = as.integer(as.character(year)))
+sum_treat_pre = nbp %>% group_by(year) %>%
+   filter(summer==1 & nbp==1 & year<2003)
+sum_treat_post = nbp %>% group_by(year) %>%
+   filter(summer==1 & nbp==1 & year>=2003)
+win_treat_pre = nbp %>% group_by(year) %>%
+   filter(summer==0 & nbp==1 & year<2003)
+win_treat_post = nbp %>% group_by(year) %>%
+   filter(summer==0 & nbp==1 & year>=2003)
+
+mod_tb = lm(emissions~year, data = sum_treat_pre)
+mod_ta = lm(emissions~year, data = sum_treat_post)
+mod_ub = lm(emissions~year, data = win_treat_pre)
+mod_ua = lm(emissions~year, data = win_treat_post)
+stargazer::stargazer(mod_tb, mod_ta, mod_ub, mod_ua, type = "text",
+                     column.labels = c("TB","TA","UB","UA"))
+sum_treat_pre %>% ungroup() %>% summarise(mean(emissions)) -> TB
+sum_treat_post %>% ungroup() %>% summarise(mean(emissions)) -> TA
+win_treat_pre %>% ungroup() %>% summarise(mean(emissions)) -> UB
+win_treat_post %>% ungroup() %>% summarise(mean(emissions)) -> UA
+```
+
+And now to estimate the causal effect of the treatment
+```{r}
+calc1 = ((TA-TB)-(UA-UB))
+calc1
+```
+
+## 5. Replicate Panel B (States Not Participating in NBP) of the Appendix Fig. 2.
+
+```{r}
+merged_df2 = nbp %>% group_by(year) %>% filter(summer==1 & nbp==0) %>%
+   summarise(yearly_avg_summer = mean(emissions))%>%
+   mutate(year = as.numeric(year))
+nbp %>% group_by(year) %>% filter(summer==0 & nbp==0) %>%
+   summarise(yearly_avg_winter = mean(emissions)) %>%
+   merge(.,merged_df2, by="year") -> merged_df2
+merged_df2 %<>% ungroup() %>% mutate(year = as.factor(year))
+
+p1 = ggplot(merged_df2, aes(x = year))+
+   geom_line(aes(y = yearly_avg_summer,
+                 group = 1),
+             color = "mediumblue",
+             size = 1.25)+
+   geom_point(aes(y=yearly_avg_summer))
+
+
+panel_B = p1 + 
+   geom_line(aes(y = yearly_avg_winter,
+                 group = 2),
+             color = "mediumblue",
+             size = 1.25,
+             linetype = "dashed")+
+   geom_point(aes(y=yearly_avg_winter)) +
+   geom_vline(xintercept = "2002")+
+   ylim(0.3,1.4) # Adjusting to scale as previous image
+panel_B
+```
+
+## 6. Explain what is the point of Panel B of the Appendix Fig. 2.
+
+The purpose of showing Panel B is because is allows us to compare trends that are occurring with the treatment group (NBP states) and the control group (non-NBP states) at the same time. Even though the values may be higher in absolute terms for NBP-states (hence the idea for the policy), we would still expect trends to "continue as normal" in the absence of the treatment. We can see that the dashed line representing winter months in both panels is nearly identical from simple visual observation. The trend for summer months, however, is noticeably different. Furthermore, we can also see there seems to be an inflection point in the trend for summer-emissions for NBP states, where the trends are no longer identical as they were prior to the implementation of the treatment/policy.
+
+## 7. Clearly state, estimate, and report a difference-in-differences regression that examines the effect of the NBP program on NOx emissions corresponding to Panel B of Appendix Fig. 2. Provide a one-sentence interpretation of the coefficient for the interaction term “summer*post”.
+
+```{r}
+nbp %<>% mutate(year = as.integer(as.character(year)))
+sum_ctrl_pre = nbp %>% group_by(year) %>%
+   filter(summer==1 & nbp==0 & year<2003)
+sum_ctrl_post = nbp %>% group_by(year) %>%
+   filter(summer==1 & nbp==0 & year>=2003)
+win_ctrl_pre = nbp %>% group_by(year) %>%
+   filter(summer==0 & nbp==0 & year<2003)
+win_ctrl_post = nbp %>% group_by(year) %>%
+   filter(summer==0 & nbp==0 & year>=2003)
+
+mod_cb = lm(emissions~year, data = sum_ctrl_pre)
+mod_ca = lm(emissions~year, data = sum_ctrl_post)
+mod_ub = lm(emissions~year, data = win_ctrl_pre)
+mod_ua = lm(emissions~year, data = win_ctrl_post)
+stargazer::stargazer(mod_tb, mod_ta, mod_ub, mod_ua, type = "text",
+                     column.labels = c("CB","CA","UB","UA"))
+sum_ctrl_pre %>% ungroup() %>% summarise(mean(emissions)) -> CB
+sum_ctrl_post %>% ungroup() %>% summarise(mean(emissions)) -> CA
+win_ctrl_pre %>% ungroup() %>% summarise(mean(emissions)) -> UB
+win_ctrl_post %>% ungroup() %>% summarise(mean(emissions)) -> UA
+```
+
+And now to estimate the causal effect of the treatment
+```{r}
+calc2 = ((CA-CB)-(UA-UB))
+calc2
+```
+
+## 8. Clearly state, estimate, and report a triple-difference regression that examines the effect of NBP program on NOx emissions. Discuss how the coefficient for the interaction term “nbp*summer*post” relates to your answers to question 4 and question 
+
+To calculate the triple-difference regression estimator, we simply solve for the difference between the difference-in-difference estimate of the effect of treatment in participating states and the estimate from non-participating states.
+
+```{r}
+calc3 = calc2 - calc1
+calc3
+```
+
+## 9. Suppose that your job is to provide a retrospective analysis on the impact of the NBP program for the Environmental Protection Agency. Write a short summary of 200 or fewer words describing what you have found in your analysis of the NBP data. In particular, based on your triple-difference estimate, provide a calculation on how much NOx emissions in total has the NBP program reduced from 2003 to 2007?
+
