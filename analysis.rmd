@@ -117,6 +117,19 @@ calc1 = ((TA-TB)-(UA-UB))
 calc1
 ```
 
+Or we could define a `lm` model formally defining interaction variables to understand interactions that may be present in our data
+```{r}
+mod_lm = nbp %>% mutate(year = as.integer(year)) %>%
+   lm(emissions~year+
+         nbp+nbp*post_2003+
+         post_2003+post_2003*summer+
+         summer+summer*nbp,
+      data = .)
+summary(mod_lm)
+```
+The `summer*post` interaction tells us how significant that the characterization of an observation being from a summer month post-2003 has in explaining the relationship that exists in the data.
+
+
 ## 5. Replicate Panel B (States Not Participating in NBP) of the Appendix Fig. 2.
 
 ```{r}
@@ -192,5 +205,23 @@ calc3 = calc2 - calc1
 calc3
 ```
 
+To look at this relationship from the perspective of a linear model, we can create the following to tell us how significant the triple interaction is at defining the relationship in the data and understanding the true causality of trends, speciafically on NOx emissions. Modeling with DDD allows us to gain a more insightful model in terms of describing causal inference, and since there are parallel trends, we can have confidence in the results from the model.
+
+```{r}
+mod_lm_3D = nbp %>% mutate(year = as.integer(year)) %>%
+   lm(emissions~year+
+         nbp+nbp*post_2003+
+         post_2003+post_2003*summer+
+         summer+summer*nbp+
+         nbp*post_2003*summer,
+      data = .)
+summary(mod_lm_3D)
+```
+
+
 ## 9. Suppose that your job is to provide a retrospective analysis on the impact of the NBP program for the Environmental Protection Agency. Write a short summary of 200 or fewer words describing what you have found in your analysis of the NBP data. In particular, based on your triple-difference estimate, provide a calculation on how much NOx emissions in total has the NBP program reduced from 2003 to 2007?
+
+From looking at the data and validating the methods used by the authors in this publication, the results from this quasi-experiment suggest that NOx NBP cap-and-trade markets have positive effects when measured in terms of several measurements such as lower levels of NOx emissions, ozone concentration, and mortality rates. The health benefit is also passed on to the pharmaceutical companies. The decreased need for additional expenditures that would otherwise be demanded without the treatment/regulatory standards, the valued amount of the health benefit savings would outweigh the cost of implementation and adherence to this program, while at the same time also providing many other benefits associated with lower levels of NOx not present in this data. 
+
+In our analysis of the same data used by the authors, we used several models and different metrics to assess the accuracy/confidence of the claim made in their research. The data was modeled with triple difference regression since (since the parallel trends assumption was present and verified) and the estimator of the treatment effect was approximately 0.33, thus suggesting a statistically significant and reproducible analysis.
 
